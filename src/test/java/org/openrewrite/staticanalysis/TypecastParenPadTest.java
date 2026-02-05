@@ -113,6 +113,27 @@ class TypecastParenPadTest implements RewriteTest {
         );
     }
 
+    @Test
+    void klassStyleTypecast() {
+        // Test with code similar to the klass project that showed the bug
+        rewriteRun(
+          java(
+            """
+              class CsvTestDataExtension {
+                  private static final Class<?>[] NO_PARAMS = {};
+                  private static final Object[] NO_ARGS = {};
+
+                  void loadCsvTestData() throws Exception {
+                      Class<?> finderClass = Class.forName("TestFinder");
+                      java.lang.reflect.Method method = finderClass.getMethod("getMithraObjectPortal", NO_PARAMS);
+                      Object mithraObjectPortal = (Object) method.invoke(null, NO_ARGS);
+                  }
+              }
+              """
+          )
+        );
+    }
+
     @Issue("https://github.com/openrewrite/rewrite-static-analysis/issues/561")
     @Test
     void noChangeForGroovy() {
