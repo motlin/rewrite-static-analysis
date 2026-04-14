@@ -27,8 +27,7 @@ import org.openrewrite.java.search.UsesType;
 import org.openrewrite.java.tree.*;
 import org.openrewrite.marker.Markers;
 
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 
 import static java.util.stream.Collectors.toList;
 import static org.openrewrite.java.tree.J.Wildcard.Bound.Extends;
@@ -53,6 +52,7 @@ public class DeclarationSiteTypeVariance extends Recipe {
 
     @Option(displayName = "Exclude final classes",
             description = "If true, do not add `? extends` variance to final classes. " +
+                          "Defaults to true, since final classes have no subtypes and `? extends` adds no value. " +
                           "`? super` variance will be added regardless of finality.",
             required = false)
     @Nullable
@@ -101,21 +101,82 @@ public class DeclarationSiteTypeVariance extends Recipe {
                         m.getLeadingAnnotations().stream().anyMatch(OVERRIDE::matches)) {
                     return m;
                 }
+                Set<String> paramsAssignedToFields = findParamsAssignedToFields(m);
                 return m.withParameters(ListUtils.map(m.getParameters(), param -> {
                     if (param instanceof J.VariableDeclarations) {
                         J.VariableDeclarations varParam = (J.VariableDeclarations) param;
-                        if (varParam.getTypeExpression() instanceof J.ParameterizedType) {
-                            J.ParameterizedType pt = (J.ParameterizedType) varParam.getTypeExpression();
-                            for (VariantTypeSpec variantTypeSpec : variantTypeSpecs) {
-                                if (variantTypeSpec.hasType(pt)) {
-                                    return varParam.withTypeExpression(useDeclarationSiteVariance(pt, variantTypeSpec));
-                                }
-                            }
-
+                        if (!varParam.getVariables().isEmpty() &&
+                            paramsAssignedToFields.contains(varParam.getVariables().get(0).getSimpleName())) {
+                            return param;
                         }
+                        return widenTypeExpression(varParam);
                     }
                     return param;
                 }));
+            }
+
+            @Override
+            public J.VariableDeclarations visitVariableDeclarations(J.VariableDeclarations multiVariable, ExecutionContext ctx) {
+                J.VariableDeclarations v = super.visitVariableDeclarations(multiVariable, ctx);
+                if (!(getCursor().getParentTreeCursor().getValue() instanceof J.Block) ||
+                    !(getCursor().getParentTreeCursor().getParentTreeCursor().getValue() instanceof J.ClassDeclaration)) {
+                    return v;
+                }
+                return widenTypeExpression(v);
+            }
+
+            private J.VariableDeclarations widenTypeExpression(J.VariableDeclarations v) {
+                if (v.getTypeExpression() instanceof J.ParameterizedType) {
+                    J.ParameterizedType pt = (J.ParameterizedType) v.getTypeExpression();
+                    for (VariantTypeSpec variantTypeSpec : variantTypeSpecs) {
+                        if (variantTypeSpec.hasType(pt)) {
+                            return v.withTypeExpression(useDeclarationSiteVariance(pt, variantTypeSpec));
+                        }
+                    }
+                }
+                return v;
+            }
+
+            private Set<String> findParamsAssignedToFields(J.MethodDeclaration method) {
+                if (method.getBody() == null) {
+                    return Collections.emptySet();
+                }
+                Set<String> paramNames = new HashSet<>();
+                for (Statement param : method.getParameters()) {
+                    if (param instanceof J.VariableDeclarations) {
+                        for (J.VariableDeclarations.NamedVariable var : ((J.VariableDeclarations) param).getVariables()) {
+                            paramNames.add(var.getSimpleName());
+                        }
+                    }
+                }
+                if (paramNames.isEmpty()) {
+                    return Collections.emptySet();
+                }
+                Set<String> result = new HashSet<>();
+                for (Statement bodyStmt : method.getBody().getStatements()) {
+                    if (!(bodyStmt instanceof J.Assignment)) {
+                        continue;
+                    }
+                    J.Assignment assignment = (J.Assignment) bodyStmt;
+                    Expression rhs = assignment.getAssignment();
+                    if (!(rhs instanceof J.Identifier) || !paramNames.contains(((J.Identifier) rhs).getSimpleName())) {
+                        continue;
+                    }
+                    Expression lhs = assignment.getVariable();
+                    if (lhs instanceof J.FieldAccess || isFieldReference(lhs)) {
+                        result.add(((J.Identifier) rhs).getSimpleName());
+                    }
+                }
+                return result;
+            }
+
+            private boolean isFieldReference(Expression expr) {
+                if (!(expr instanceof J.Identifier)) {
+                    return false;
+                }
+                J.Identifier ident = (J.Identifier) expr;
+                JavaType.Variable fieldType = ident.getFieldType();
+                return fieldType != null && fieldType.getOwner() instanceof JavaType.FullyQualified;
             }
 
             private J.ParameterizedType useDeclarationSiteVariance(J.ParameterizedType pt, VariantTypeSpec spec) {
@@ -129,6 +190,10 @@ public class DeclarationSiteTypeVariance extends Recipe {
 
                     JavaType.FullyQualified fq = TypeUtils.asFullyQualified(tp.getType());
                     if (fq != null) {
+                        if ("java.lang.Object".equals(fq.getFullyQualifiedName()) &&
+                            variance == VariantTypeSpec.Variance.OUT) {
+                            return tp;
+                        }
                         if (excludedBounds != null) {
                             for (String excludedBound : excludedBounds) {
                                 if (StringUtils.matchesGlob(fq.getFullyQualifiedName(), excludedBound)) {
@@ -136,7 +201,7 @@ public class DeclarationSiteTypeVariance extends Recipe {
                                 }
                             }
                         }
-                        if (Boolean.TRUE.equals(excludeFinalClasses) && fq.getFlags().contains(Flag.Final) &&
+                        if (!Boolean.FALSE.equals(excludeFinalClasses) && fq.getFlags().contains(Flag.Final) &&
                             variance == VariantTypeSpec.Variance.OUT) {
                             return tp;
                         }

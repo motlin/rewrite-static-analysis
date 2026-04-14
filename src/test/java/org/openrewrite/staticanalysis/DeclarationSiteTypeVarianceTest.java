@@ -226,6 +226,171 @@ class DeclarationSiteTypeVarianceTest implements RewriteTest {
     }
 
     @Test
+    void doNotAddExtendsObject() {
+        rewriteRun(
+          spec -> spec.recipe(new DeclarationSiteTypeVariance(
+            List.of("java.util.function.Function<IN, OUT>"),
+            null,
+            null
+          )),
+          //language=java
+          java(
+            """
+              import java.util.function.Function;
+              class Test {
+                  void test(Function<String, Object> f) {
+                  }
+              }
+              """,
+            """
+              import java.util.function.Function;
+              class Test {
+                  void test(Function<? super String, Object> f) {
+                  }
+              }
+              """
+          )
+        );
+    }
+
+    @Test
+    void doNotAddExtendsFinalClassByDefault() {
+        rewriteRun(
+          spec -> spec.recipe(new DeclarationSiteTypeVariance(
+            List.of("java.util.function.Function<IN, OUT>"),
+            null,
+            null
+          )),
+          //language=java
+          java(
+            """
+              interface In {}
+              """
+          ),
+          //language=java
+          java(
+            """
+              import java.util.function.Function;
+              class Test {
+                  void test(Function<In, String> f) {
+                  }
+              }
+              """,
+            """
+              import java.util.function.Function;
+              class Test {
+                  void test(Function<? super In, String> f) {
+                  }
+              }
+              """
+          )
+        );
+    }
+
+    @Test
+    void widenFieldButNotParameterAssignedToField() {
+        rewriteRun(
+          spec -> spec.recipe(new DeclarationSiteTypeVariance(
+            List.of("java.util.function.Function<IN, OUT>"),
+            List.of("java.lang.*"),
+            true
+          )),
+          //language=java
+          java(
+            """
+              interface In {}
+              interface Out {}
+              """
+          ),
+          //language=java
+          java(
+            """
+              import java.util.function.Function;
+              class Test {
+                  private final Function<In, Out> function;
+                  Test(Function<In, Out> function) {
+                      this.function = function;
+                  }
+              }
+              """,
+            """
+              import java.util.function.Function;
+              class Test {
+                  private final Function<? super In, ? extends Out> function;
+                  Test(Function<In, Out> function) {
+                      this.function = function;
+                  }
+              }
+              """
+          )
+        );
+    }
+
+    @Test
+    void doNotWidenConstructorParameterAssignedToField() {
+        rewriteRun(
+          spec -> spec.recipe(new DeclarationSiteTypeVariance(
+            List.of("java.util.function.Predicate<IN>"),
+            null,
+            null
+          )),
+          //language=java
+          java(
+            """
+              import java.util.function.Predicate;
+              class NotPredicate<T> {
+                  private final Predicate<T> predicate;
+                  private NotPredicate(Predicate<T> newPredicate) {
+                      this.predicate = newPredicate;
+                  }
+              }
+              """,
+            """
+              import java.util.function.Predicate;
+              class NotPredicate<T> {
+                  private final Predicate<? super T> predicate;
+                  private NotPredicate(Predicate<T> newPredicate) {
+                      this.predicate = newPredicate;
+                  }
+              }
+              """
+          )
+        );
+    }
+
+    @Test
+    void doNotWidenMethodParameterAssignedToField() {
+        rewriteRun(
+          spec -> spec.recipe(new DeclarationSiteTypeVariance(
+            List.of("java.util.function.Predicate<IN>"),
+            null,
+            null
+          )),
+          //language=java
+          java(
+            """
+              import java.util.function.Predicate;
+              class Holder<T> {
+                  private Predicate<T> predicate;
+                  void setPredicate(Predicate<T> predicate) {
+                      this.predicate = predicate;
+                  }
+              }
+              """,
+            """
+              import java.util.function.Predicate;
+              class Holder<T> {
+                  private Predicate<? super T> predicate;
+                  void setPredicate(Predicate<T> predicate) {
+                      this.predicate = predicate;
+                  }
+              }
+              """
+          )
+        );
+    }
+
+    @Test
     void overriddenMethods() {
         rewriteRun(
           //language=java
