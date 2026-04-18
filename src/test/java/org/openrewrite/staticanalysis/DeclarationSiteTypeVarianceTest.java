@@ -288,7 +288,7 @@ class DeclarationSiteTypeVarianceTest implements RewriteTest {
     }
 
     @Test
-    void widenFieldButNotParameterAssignedToField() {
+    void widenFieldAndConstructorParameter() {
         rewriteRun(
           spec -> spec.recipe(new DeclarationSiteTypeVariance(
             List.of("java.util.function.Function<IN, OUT>"),
@@ -317,7 +317,7 @@ class DeclarationSiteTypeVarianceTest implements RewriteTest {
               import java.util.function.Function;
               class Test {
                   private final Function<? super In, ? extends Out> function;
-                  Test(Function<In, Out> function) {
+                  Test(Function<? super In, ? extends Out> function) {
                       this.function = function;
                   }
               }
@@ -327,39 +327,7 @@ class DeclarationSiteTypeVarianceTest implements RewriteTest {
     }
 
     @Test
-    void doNotWidenConstructorParameterAssignedToField() {
-        rewriteRun(
-          spec -> spec.recipe(new DeclarationSiteTypeVariance(
-            List.of("java.util.function.Predicate<IN>"),
-            null,
-            null
-          )),
-          //language=java
-          java(
-            """
-              import java.util.function.Predicate;
-              class NotPredicate<T> {
-                  private final Predicate<T> predicate;
-                  private NotPredicate(Predicate<T> newPredicate) {
-                      this.predicate = newPredicate;
-                  }
-              }
-              """,
-            """
-              import java.util.function.Predicate;
-              class NotPredicate<T> {
-                  private final Predicate<? super T> predicate;
-                  private NotPredicate(Predicate<T> newPredicate) {
-                      this.predicate = newPredicate;
-                  }
-              }
-              """
-          )
-        );
-    }
-
-    @Test
-    void doNotWidenMethodParameterAssignedToField() {
+    void widenFieldAndSetterParameter() {
         rewriteRun(
           spec -> spec.recipe(new DeclarationSiteTypeVariance(
             List.of("java.util.function.Predicate<IN>"),
@@ -381,7 +349,7 @@ class DeclarationSiteTypeVarianceTest implements RewriteTest {
               import java.util.function.Predicate;
               class Holder<T> {
                   private Predicate<? super T> predicate;
-                  void setPredicate(Predicate<T> predicate) {
+                  void setPredicate(Predicate<? super T> predicate) {
                       this.predicate = predicate;
                   }
               }

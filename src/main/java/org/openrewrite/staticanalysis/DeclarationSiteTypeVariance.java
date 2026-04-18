@@ -27,7 +27,8 @@ import org.openrewrite.java.search.UsesType;
 import org.openrewrite.java.tree.*;
 import org.openrewrite.marker.Markers;
 
-import java.util.*;
+import java.util.Arrays;
+import java.util.List;
 
 import static java.util.stream.Collectors.toList;
 import static org.openrewrite.java.tree.J.Wildcard.Bound.Extends;
@@ -101,15 +102,9 @@ public class DeclarationSiteTypeVariance extends Recipe {
                         m.getLeadingAnnotations().stream().anyMatch(OVERRIDE::matches)) {
                     return m;
                 }
-                Set<String> paramsAssignedToFields = findParamsAssignedToFields(m);
                 return m.withParameters(ListUtils.map(m.getParameters(), param -> {
                     if (param instanceof J.VariableDeclarations) {
-                        J.VariableDeclarations varParam = (J.VariableDeclarations) param;
-                        if (!varParam.getVariables().isEmpty() &&
-                            paramsAssignedToFields.contains(varParam.getVariables().get(0).getSimpleName())) {
-                            return param;
-                        }
-                        return widenTypeExpression(varParam);
+                        return widenTypeExpression((J.VariableDeclarations) param);
                     }
                     return param;
                 }));
@@ -135,48 +130,6 @@ public class DeclarationSiteTypeVariance extends Recipe {
                     }
                 }
                 return v;
-            }
-
-            private Set<String> findParamsAssignedToFields(J.MethodDeclaration method) {
-                if (method.getBody() == null) {
-                    return Collections.emptySet();
-                }
-                Set<String> paramNames = new HashSet<>();
-                for (Statement param : method.getParameters()) {
-                    if (param instanceof J.VariableDeclarations) {
-                        for (J.VariableDeclarations.NamedVariable var : ((J.VariableDeclarations) param).getVariables()) {
-                            paramNames.add(var.getSimpleName());
-                        }
-                    }
-                }
-                if (paramNames.isEmpty()) {
-                    return Collections.emptySet();
-                }
-                Set<String> result = new HashSet<>();
-                for (Statement bodyStmt : method.getBody().getStatements()) {
-                    if (!(bodyStmt instanceof J.Assignment)) {
-                        continue;
-                    }
-                    J.Assignment assignment = (J.Assignment) bodyStmt;
-                    Expression rhs = assignment.getAssignment();
-                    if (!(rhs instanceof J.Identifier) || !paramNames.contains(((J.Identifier) rhs).getSimpleName())) {
-                        continue;
-                    }
-                    Expression lhs = assignment.getVariable();
-                    if (lhs instanceof J.FieldAccess || isFieldReference(lhs)) {
-                        result.add(((J.Identifier) rhs).getSimpleName());
-                    }
-                }
-                return result;
-            }
-
-            private boolean isFieldReference(Expression expr) {
-                if (!(expr instanceof J.Identifier)) {
-                    return false;
-                }
-                J.Identifier ident = (J.Identifier) expr;
-                JavaType.Variable fieldType = ident.getFieldType();
-                return fieldType != null && fieldType.getOwner() instanceof JavaType.FullyQualified;
             }
 
             private J.ParameterizedType useDeclarationSiteVariance(J.ParameterizedType pt, VariantTypeSpec spec) {
