@@ -15,9 +15,13 @@
  */
 package org.openrewrite.staticanalysis;
 
-import lombok.Getter;
+import com.fasterxml.jackson.annotation.JsonCreator;
+import lombok.EqualsAndHashCode;
+import lombok.Value;
+import org.jspecify.annotations.Nullable;
 import org.openrewrite.ExecutionContext;
 import org.openrewrite.Incubating;
+import org.openrewrite.Option;
 import org.openrewrite.Recipe;
 import org.openrewrite.TreeVisitor;
 
@@ -26,22 +30,39 @@ import java.util.Set;
 import static java.util.Collections.singleton;
 
 @Incubating(since = "7.0.0")
+@EqualsAndHashCode(callSuper = false)
+@Value
 public class HideUtilityClassConstructor extends Recipe {
 
-    @Getter
-    final String displayName = "Hide utility class constructor";
+    @Option(displayName = "Constructor body",
+            description = "Java statements to place inside newly generated private constructors, without enclosing braces. " +
+                    "Defaults to an empty body. Existing constructor bodies are preserved. " +
+                    "Use fully qualified names for types that are not already imported.",
+            example = "throw new AssertionError(\"Suppress default constructor for noninstantiability\");",
+            required = false)
+    @Nullable
+    String constructorBody;
 
-    @Getter
-    final String description = "Ensures utility classes (classes containing only static methods " +
+    public HideUtilityClassConstructor() {
+        this(null);
+    }
+
+    @JsonCreator
+    public HideUtilityClassConstructor(@Nullable String constructorBody) {
+        this.constructorBody = constructorBody;
+    }
+
+    String displayName = "Hide utility class constructor";
+
+    String description = "Ensures utility classes (classes containing only static methods " +
             "or fields in their API) do not have a public constructor. " +
             "Instantiating a utility class is almost certainly a mistake, and a " +
             "private constructor makes that intent clear while preventing misuse.";
 
-    @Getter
-    final Set<String> tags = singleton("RSPEC-S1118");
+    Set<String> tags = singleton("RSPEC-S1118");
 
     @Override
     public TreeVisitor<?, ExecutionContext> getVisitor() {
-        return new HideUtilityClassConstructorVisitor<>();
+        return new HideUtilityClassConstructorVisitor<>(constructorBody);
     }
 }

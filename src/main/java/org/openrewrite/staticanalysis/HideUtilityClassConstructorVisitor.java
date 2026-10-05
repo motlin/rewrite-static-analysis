@@ -62,6 +62,16 @@ public class HideUtilityClassConstructorVisitor<P> extends JavaIsoVisitor<P> {
     private static final EnumSet<J.ClassDeclaration.Kind.Type> EXCLUDE_CLASS_TYPES =
             EnumSet.of(J.ClassDeclaration.Kind.Type.Interface, J.ClassDeclaration.Kind.Type.Record);
 
+    private final String constructorBody;
+
+    public HideUtilityClassConstructorVisitor() {
+        this(null);
+    }
+
+    public HideUtilityClassConstructorVisitor(@Nullable String constructorBody) {
+        this.constructorBody = constructorBody == null ? "" : constructorBody;
+    }
+
     @SuppressWarnings("NotNullFieldNotInitialized")
     private UtilityClassMatcher utilityClassMatcher;
     @SuppressWarnings("NotNullFieldNotInitialized")
@@ -101,7 +111,8 @@ public class HideUtilityClassConstructorVisitor<P> extends JavaIsoVisitor<P> {
     }
 
     /**
-     * Adds an empty private constructor if the class has zero explicit constructors. This hides the default implicit constructor.
+     * Adds a private constructor with the configured body if the class has zero explicit constructors.
+     * This hides the default implicit constructor.
      */
     private class UtilityClassWithImplicitDefaultConstructorVisitor extends JavaIsoVisitor<P> {
 
@@ -109,7 +120,7 @@ public class HideUtilityClassConstructorVisitor<P> extends JavaIsoVisitor<P> {
         public J.ClassDeclaration visitClassDeclaration(J.ClassDeclaration classDecl, P p) {
             if (utilityClassMatcher.hasImplicitDefaultConstructor(classDecl) &&
                     J.ClassDeclaration.Kind.Type.Enum != classDecl.getKind()) {
-                classDecl = JavaTemplate.builder("private #{}() {}")
+                classDecl = JavaTemplate.builder("private #{}() {" + constructorBody + "\n}")
                         .contextSensitive()
                         .build()
                         .apply(getCursor(), classDecl.getBody().getCoordinates().lastStatement(), classDecl.getSimpleName());
