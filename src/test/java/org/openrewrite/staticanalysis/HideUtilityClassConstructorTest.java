@@ -16,6 +16,10 @@
 package org.openrewrite.staticanalysis;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.openrewrite.DocumentExample;
 import org.openrewrite.Issue;
 import org.openrewrite.java.JavaParser;
@@ -33,6 +37,7 @@ import static org.openrewrite.Tree.randomId;
 import static org.openrewrite.java.Assertions.java;
 import static org.openrewrite.java.Assertions.version;
 
+@SuppressWarnings("unused")
 class HideUtilityClassConstructorTest implements RewriteTest {
 
     @Override
@@ -41,23 +46,29 @@ class HideUtilityClassConstructorTest implements RewriteTest {
     }
 
     @DocumentExample
-    @Test
-    void changePublicConstructorToPrivate() {
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = "throw new AssertionError();")
+    void changePublicConstructorToPrivate(String constructorBody) {
         rewriteRun(
-          //language=java
+          spec -> spec.recipe(new HideUtilityClassConstructor(constructorBody)),
           java(
+            //language=java
             """
               public class A {
                   public A() {
+                      utility();
                   }
 
                   public static void utility() {
                   }
               }
               """,
+            //language=java
             """
               public class A {
                   private A() {
+                      utility();
                   }
 
                   public static void utility() {
@@ -129,11 +140,14 @@ class HideUtilityClassConstructorTest implements RewriteTest {
         );
     }
 
-    @Test
-    void doNotChangeInapplicableNestedClass() {
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = "throw new AssertionError();")
+    void doNotChangeInapplicableNestedClass(String constructorBody) {
         rewriteRun(
-          //language=java
+          spec -> spec.recipe(new HideUtilityClassConstructor(constructorBody)),
           java(
+            //language=java
             """
               public class A {
                   private A() {}
@@ -218,11 +232,14 @@ class HideUtilityClassConstructorTest implements RewriteTest {
         );
     }
 
-    @Test
-    void addPrivateConstructorWhenOnlyDefaultConstructor() {
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = "   ")
+    void addPrivateConstructorWhenOnlyDefaultConstructor(String constructorBody) {
         rewriteRun(
-          //language=java
+          spec -> spec.recipe(new HideUtilityClassConstructor(constructorBody)),
           java(
+            //language=java
             """
               public class Math {
                   public static final int TWO = 2;
@@ -232,6 +249,7 @@ class HideUtilityClassConstructorTest implements RewriteTest {
                   }
               }
               """,
+            //language=java
             """
               public class Math {
                   public static final int TWO = 2;
@@ -241,6 +259,94 @@ class HideUtilityClassConstructorTest implements RewriteTest {
                   }
 
                   private Math() {
+                  }
+              }
+              """
+          )
+        );
+    }
+
+    @Test
+    void addPrivateConstructorWithCustomBody() {
+        rewriteRun(
+          spec -> spec.recipe(new HideUtilityClassConstructor(
+            "throw new AssertionError(\"Suppress default constructor for noninstantiability\");")),
+          java(
+            //language=java
+            """
+              class Lists {
+                  public static void utility() {}
+              }
+              """,
+            //language=java
+            """
+              class Lists {
+                  public static void utility() {}
+
+                  private Lists() {
+                      throw new AssertionError("Suppress default constructor for noninstantiability");
+                  }
+              }
+              """
+          )
+        );
+    }
+
+    @Test
+    void addPrivateConstructorWithImportedAndFullyQualifiedTypes() {
+        rewriteRun(
+          spec -> spec.recipe(new HideUtilityClassConstructor(
+            "throw new java.io.UncheckedIOException(new IOException(\"Utility class\"));")),
+          java(
+            //language=java
+            """
+              import java.io.IOException;
+
+              class A {
+                  // Keep the utility method comment.
+                  public static void utility() {}
+              }
+              """,
+            //language=java
+            """
+              import java.io.IOException;
+
+              class A {
+                  // Keep the utility method comment.
+                  public static void utility() {}
+
+                  private A() {
+                      throw new java.io.UncheckedIOException(new IOException("Utility class"));
+                  }
+              }
+              """
+          )
+        );
+    }
+
+    @Test
+    void addPrivateConstructorWithContextualBodyToNestedClass() {
+        rewriteRun(
+          spec -> spec.recipe(new HideUtilityClassConstructor("String message = MESSAGE;\nthrow new AssertionError(message);")),
+          java(
+            //language=java
+            """
+              class A {
+                  static class Inner {
+                      public static final String MESSAGE = "Utility class";
+                  }
+              }
+              """,
+            //language=java
+            """
+              class A {
+                  static class Inner {
+                      public static final String MESSAGE = "Utility class";
+
+                      private Inner() {
+                          String message = MESSAGE;
+                          throw new AssertionError(message);
+                      }
                   }
               }
               """
