@@ -29,8 +29,10 @@ import org.openrewrite.java.tree.JavaType;
 import org.openrewrite.java.tree.Statement;
 import org.openrewrite.style.Style;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.EnumSet;
+import java.util.List;
 
 import static java.util.stream.Collectors.toList;
 
@@ -38,6 +40,16 @@ public class HideUtilityClassConstructorVisitor<P> extends JavaIsoVisitor<P> {
 
     private static final EnumSet<J.ClassDeclaration.Kind.Type> EXCLUDE_CLASS_TYPES =
             EnumSet.of(J.ClassDeclaration.Kind.Type.Interface, J.ClassDeclaration.Kind.Type.Record);
+
+    private final String constructorBody;
+
+    public HideUtilityClassConstructorVisitor() {
+        this(null);
+    }
+
+    public HideUtilityClassConstructorVisitor(@Nullable String constructorBody) {
+        this.constructorBody = constructorBody == null ? "" : constructorBody;
+    }
 
     private UtilityClassMatcher utilityClassMatcher;
     private HideUtilityClassConstructorStyle style;
@@ -62,7 +74,8 @@ public class HideUtilityClassConstructorVisitor<P> extends JavaIsoVisitor<P> {
     }
 
     /**
-     * Adds an empty private constructor if the class has zero explicit constructors. This hides the default implicit constructor.
+     * Adds a private constructor with the configured body if the class has zero explicit constructors.
+     * This hides the default implicit constructor.
      */
     private class UtilityClassWithImplicitDefaultConstructorVisitor extends JavaIsoVisitor<P> {
 
@@ -70,8 +83,18 @@ public class HideUtilityClassConstructorVisitor<P> extends JavaIsoVisitor<P> {
         public J.ClassDeclaration visitClassDeclaration(J.ClassDeclaration classDecl, P p) {
             if (utilityClassMatcher.hasImplicitDefaultConstructor(classDecl) &&
                     J.ClassDeclaration.Kind.Type.Enum != classDecl.getKind()) {
-                classDecl = JavaTemplate.builder("private #{}() {}")
+                List<String> imports = new ArrayList<>();
+                List<String> staticImports = new ArrayList<>();
+                J.CompilationUnit cu = getCursor().firstEnclosing(J.CompilationUnit.class);
+                if (cu != null) {
+                    for (J.Import anImport : cu.getImports()) {
+                        (anImport.isStatic() ? staticImports : imports).add(anImport.getQualid().printTrimmed(getCursor()));
+                    }
+                }
+                classDecl = JavaTemplate.builder("private #{}() {" + constructorBody + "\n}")
                         .contextSensitive()
+                        .imports(imports.toArray(new String[0]))
+                        .staticImports(staticImports.toArray(new String[0]))
                         .build()
                         .apply(getCursor(), classDecl.getBody().getCoordinates().lastStatement(), classDecl.getSimpleName());
             }
